@@ -20,6 +20,8 @@ output from ArcSight connectors.
      --delay <N> The number of milliseconds to wait between the replay of each
                  message.
      --help      Print this help text and exit.
+     --file <file_name>
+                 The file to read the syslog messages from.
      --no-echo   Do not echo the messages to the screen.
      --no-loop   Do not replay the messages more than once.
      --no-ts     Do not change the timestamp before replaying the message.
@@ -39,8 +41,6 @@ output from ArcSight connectors.
      --address <listen_address>
                  The hostname or IP address to listen on. (Default: 127.0.0.1).
      --help      Print this help text and exit.
-     --file <file_name>
-                 The file to read the syslog messages from.
      --port <port>
                  The port to listen for incoming messages on.
      --receive-buffer <N>
