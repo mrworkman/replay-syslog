@@ -32,13 +32,15 @@ output from ArcSight connectors.
     
  ### `message-listener.pl`
  
-     USAGE:
+    USAGE:
     
      message-listener.pl [--address <listen_address>] [--port <port>] [--tcp] [--receive-buffer <N>]
     
      --address <listen_address>
                  The hostname or IP address to listen on. (Default: 127.0.0.1).
      --help      Print this help text and exit.
+     --file <file_name>
+                 The file to read the syslog messages from.
      --port <port>
                  The port to listen for incoming messages on.
      --receive-buffer <N>

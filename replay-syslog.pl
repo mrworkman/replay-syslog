@@ -127,6 +127,8 @@ sub PrintUsage {
    print(" --delay <N> The number of milliseconds to wait between the replay of each\n");
    print("             message.\n");
    print(" --help      Print this help text and exit.\n");
+   print(" --file <file_name>\n");
+   print("             The file to read the syslog messages from.\n");
    print(" --no-echo   Do not echo the messages to the screen.\n");
    print(" --no-loop   Do not replay the messages more than once.\n");
    print(" --no-ts     Do not change the timestamp before replaying the message.\n");
