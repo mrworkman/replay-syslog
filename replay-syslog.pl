@@ -28,7 +28,9 @@ use POSIX qw(strftime);
 use IO::Socket::INET;
 use Getopt::Long;
 
-my $VERSION = "1.1.0";
+use Socket qw(IPPROTO_RAW);
+
+my $VERSION = "1.2.0";
 
 # Command-line options
 my %o;
@@ -37,12 +39,13 @@ my %o;
 $o{Port} = 514;
 $o{Delay} = 50;
 
+my $sock;
 my $protocol = "udp";
 
    #
    # Main Script
    CheckArgs();
-   
+
    my $file   = $o{File};
    my $server = $o{Server};
    my $port   = $o{Port};
@@ -51,16 +54,18 @@ my $protocol = "udp";
    open(FILE, "$file") || die "Couldn't read '$file'\n - $!";
    my @lines = <FILE>;
    close(FILE);
-   
-   # Connect to the server
-   my $sock = IO::Socket::INET->new(
-      PeerAddr => $server,
-      PeerPort => $port,
-      Proto    => $protocol,
-   );
-   
-   die "Couldn't connect to server $server on $port using $protocol!\n" if(!$sock);
-   
+
+   if (!$o{Spoof}) {
+      # Connect to the server
+      $sock = IO::Socket::INET->new(
+         PeerAddr => $server,
+         PeerPort => $port,
+         Proto    => $protocol,
+      );
+
+      die "Couldn't connect to server $server on $port using $protocol!\n" if(!$sock);
+   }
+
    # Replay all of the lines to the specified syslog server
    do {
       foreach my $line (@lines) {
@@ -95,6 +100,7 @@ sub CheckArgs {
       "no-ts"    => \$o{NoTs},
       "port=i"   => \$o{Port},
       "server=s" => \$o{Server},
+      "spoof"    => \$o{Spoof},
       "tcp"      => \$o{Tcp},
       "version"  => \$o{Version},
    ) || die "See --help\n\n";
@@ -109,10 +115,81 @@ sub CheckArgs {
       exit 0;
    }
 
+   if ($o{Spoof} && $^O ne "linux") {
+      print("ERROR> --spoof is only supported on Linux!\n");
+      exit(1);
+   }
+
+   if ($o{Spoof} && $o{Tcp}) {
+      print("ERROR> --spoof cannot be used with --tcp\n");
+      exit(1);
+   }
+
+   if ($o{Spoof}) {
+      socket(RAW, AF_INET, SOCK_RAW, IPPROTO_RAW) or die $!;
+   }
+
    die "--file is required.\n" if (!$o{File});
    die "--server is required.\n" if (!$o{Server});
 
    $protocol = "tcp" if ($o{Tcp});
+}
+
+sub SendRawUdp {
+   my $data = shift;
+
+   # We can only fit so much payload.
+   if (length($data) > 65507) {
+      $data = substr($data, 0, 65507);
+   }
+
+   my $udplen = length($data) + 8;
+
+   # Construct a custom datagram.
+   my $datagram = pack(
+      "nnnna*",
+      0,        # Source Port (doesn't matter).
+      $o{Port}, # Dest Port.
+      $udplen,  # Datagram Size.
+      0,        # Checksum - computed below.
+      $data     # The payload.
+   );
+
+   # TODO: Select allow user to select a specific source IP, or
+   # use a random IP each time this function is called?
+   my $srcip = 0x01010101;
+   my $dstip = unpack("N", inet_aton($o{Server}));
+
+   # Construct a custom IP header.
+   my $iphdr = pack(
+      "n n N C C n N N",
+      0x4500,                   # Version, Hlen, & TOS.
+      0x14 + length($datagram), # Total length.
+      0x00000000,               # Fragment Info.
+      0x80,                     # TTL.
+      0x11,                     # UDP.
+      0x0000,                   # Header Checksum (computed by OS).
+      $srcip,                   # Src IP
+      $dstip                    # Dst IP
+   );
+
+   # Compute the UDP checksum.
+   my $csum = ($srcip >> 16) + ($srcip & 0xffff) +
+              ($dstip >> 16) + ($dstip & 0xffff) +
+              (0x11) + (8 + length($data));
+
+   for (my $i = 0; $i < $udplen; $i++) {
+      $csum += vec($datagram, $i, 16);
+   }
+
+   # Combine the carry.
+   $csum = ($csum >> 16) + ($csum & 0xffff);
+
+   # Set the UDP checksum.
+   vec($datagram, 3, 16) = ~$csum;
+
+   # Send the syslog message.
+   send(RAW, $iphdr . $datagram, 0, pack('Sna4x8', AF_INET, 0, inet_aton($o{Server}) ));
 }
 
 sub PrintUsage {
@@ -136,6 +213,7 @@ sub PrintUsage {
    print("             The port to connect to on the syslog server.\n");
    print(" --server <server_address>\n");
    print("             The hostname or IP address of the server to send the messages to.\n");
+   print(" --spoof     Spoof the source IP address. UDP Only. Linux Only.\n");
    print(" --tcp       Use TCP instead of UDP.\n");
    print(" --version   Print this script's version and exit.\n");
    print("\n");
@@ -148,5 +226,9 @@ sub SendSyslog {
    
    print("$str\n") if (!$o{NoEcho});
 
-   $sock->send("$str");
+   if ($o{Spoof}) {
+      SendRawUdp("$str");
+   } else {
+      $sock->send("$str");
+   }
 }
